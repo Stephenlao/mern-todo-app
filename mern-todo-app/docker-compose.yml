@@ -1,0 +1,48 @@
+name: mern-todo
+
+services:
+  mongo:
+    image: mongo:6
+    restart: unless-stopped
+    volumes:
+      - mongo-data:/data/db          # data survives container restarts / rebuilds
+    # No "ports:" on purpose: the DB is reachable only by other containers, not from outside.
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping').ok"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  backend:
+    build: ./backend
+    image: mern-todo-backend
+    restart: unless-stopped
+    env_file:
+      - ./backend/.env               # JWT_SECRET, GMAIL_* ...
+    environment:
+      # Overrides the localhost values from .env: inside Docker, "mongo" is the DB container's hostname.
+      MONGO_URI: mongodb://mongo:27017/todo
+      PORT: 8000
+      CLIENT_URL: http://localhost:3000
+    depends_on:
+      mongo:
+        condition: service_healthy   # server.js does not retry the DB connection, so wait for Mongo
+    ports:
+      - "8000:8000"                  # optional: lets you call the API directly for testing
+
+  frontend:
+    build:
+      context: ./frontend
+      args:
+        REACT_APP_API_URL: /api
+    image: mern-todo-frontend
+    restart: unless-stopped
+    depends_on:
+      backend:
+        condition: service_healthy
+    ports:
+      - "3000:80"                    # open http://localhost:3000
+
+volumes:
+  mongo-data:
